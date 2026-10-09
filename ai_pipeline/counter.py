@@ -86,17 +86,25 @@ class ZoneCounter:
                     except Exception as err:
                         print(f"[counter] Density estimate failed: {err}")
 
+                box_count = 0
+                if result.boxes is not None:
+                    try:
+                        box_count = len(result.boxes)
+                    except TypeError:
+                        box_count = 0
+
                 source_kind = self.source.split(":", 1)[0] if self.source else "video"
                 payload = {
                     "timestamp": time.time(),
                     "zone": self.current_zone(),
                     "frame_count": self.frame_count,
-                    "current_frame_count": len(result.boxes) if result.boxes is not None else 0,
+                    "current_frame_count": box_count,
                     "unique_total": self.tracker.total_unique,
                     "altitude_m": config.ALTITUDE_SIMULATION,
                     "density_enabled": self.density is not None,
                     "density_estimate": self.last_density,
                     "source": source_kind,
+                    "tracker_mode": getattr(self.tracker, "mode", "yolo"),
                 }
 
                 if config.STREAM_VIDEO and self.frame_count % config.STREAM_EVERY_N_FRAMES == 0:

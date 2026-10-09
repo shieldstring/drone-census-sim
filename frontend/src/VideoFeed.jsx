@@ -6,8 +6,10 @@ export default function VideoFeed({ data, zone, altitude }) {
           <div>
             <strong>Awaiting aerial feed</strong>
             <p>
-              Start the stack with <code>RUN.bat</code> / <code>start.ps1</code>. Annotated frames
-              appear once the AI pipeline connects.
+              The dashboard is open, but the AI pipeline is not sending frames yet. In a project
+              terminal run <code>python -m ai_pipeline.counter</code> (or{" "}
+              <code>python -m ai_pipeline.demo_stream</code> for a quick demo), then refresh this
+              page.
             </p>
           </div>
         </div>
