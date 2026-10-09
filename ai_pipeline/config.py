@@ -19,6 +19,6 @@ GRID_ZONES = ["Zone A", "Zone B", "Zone C", "Zone D"]
 
 # Live annotated-frame streaming to the dashboard
 STREAM_VIDEO = os.environ.get("STREAM_VIDEO", "true").lower() == "true"
-STREAM_EVERY_N_FRAMES = int(os.environ.get("STREAM_EVERY_N_FRAMES", "3"))
+STREAM_EVERY_N_FRAMES = int(os.environ.get("STREAM_EVERY_N_FRAMES", "2"))
 STREAM_MAX_WIDTH = int(os.environ.get("STREAM_MAX_WIDTH", "640"))
 STREAM_JPEG_QUALITY = int(os.environ.get("STREAM_JPEG_QUALITY", "60"))

@@ -5,6 +5,7 @@ export default function useCensusSocket(url = "ws://localhost:8080/dash") {
   const [history, setHistory] = useState([]);
   const [status, setStatus] = useState("connecting");
   const wsRef = useRef(null);
+  const lastFrameRef = useRef(null);
 
   useEffect(() => {
     let closed = false;
@@ -23,6 +24,15 @@ export default function useCensusSocket(url = "ws://localhost:8080/dash") {
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        // AI pipeline only attaches frame_b64 on some messages. Keep the last
+        // image so the video panel does not blink to "Awaiting aerial feed".
+        if (data.frame_b64) {
+          lastFrameRef.current = data.frame_b64;
+        } else if (lastFrameRef.current) {
+          data.frame_b64 = lastFrameRef.current;
+        }
+
         setLatest(data);
         setHistory((prev) => [...prev.slice(-199), data]);
         setStatus("live");

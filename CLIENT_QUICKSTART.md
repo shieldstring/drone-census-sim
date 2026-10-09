@@ -84,7 +84,9 @@ That shuts down every component it started.
 
 **Python not found** - reinstall Python 3.10+ and check **Add python.exe to PATH**, then reopen PowerShell.
 
-**MongoDB warning / skipped** - optional. Live demo still works. Install MongoDB Community if you need persistence.
+**MongoDB / mongod not found** - normal if you did not install a local MongoDB. Live video still works. For saved history either install MongoDB Community, or set `MONGO_URI` in `backend\.env` to a MongoDB Atlas `mongodb+srv://...` URI (no local mongod needed).
+
+**Aerial feed blinking** - fixed in the latest package: the UI now keeps the last frame between updates. Copy the updated `frontend` folder (or re-extract the zip), stop with Ctrl+C, then run `.\scripts\start.ps1` again and hard-refresh the browser (Ctrl+F5).
 
 **Port already in use** - something else is using 8080, 5173, or 27017. Stop the previous run with Ctrl+C first.
 

@@ -177,10 +177,18 @@ function Wait-Port {
     return $false
 }
 
-# ---- Step 1: MongoDB (optional - live dashboard still works without it) ----
+# ---- Step 1: MongoDB local (optional if backend/.env uses Atlas mongodb+srv) ----
+$usingAtlas = $false
+if (Test-Path $BackendEnv) {
+    $backendEnvText = Get-Content $BackendEnv -Raw
+    if ($backendEnvText -match "mongodb\+srv://") {
+        $usingAtlas = $true
+    }
+}
+
 $mongoCmd = Get-Command mongod -ErrorAction SilentlyContinue
 if ($mongoCmd) {
-    Write-Host "[start.ps1] Starting MongoDB..."
+    Write-Host "[start.ps1] Starting local MongoDB..."
     $mongoJob = Start-Job -ScriptBlock {
         mongod --dbpath "$using:RootDir\data\db" 2>&1 | Out-File "$using:LogDir\mongod.log"
     }
@@ -189,10 +197,13 @@ if ($mongoCmd) {
     if (-not (Wait-Port -Port 27017 -TimeoutSeconds 30)) {
         Write-Host "[start.ps1] WARNING: MongoDB did not come up on port 27017 within 30s. Continuing anyway."
     }
+} elseif ($usingAtlas) {
+    Write-Host "[start.ps1] Local mongod not found - OK. backend\.env uses MongoDB Atlas."
 } else {
-    Write-Host "[start.ps1] WARNING: mongod not found on PATH. Skipping MongoDB."
-    Write-Host "[start.ps1] Live dashboard will still work; history persistence is disabled."
-    Write-Host "[start.ps1] Install MongoDB Community Server if you need saved snapshots."
+    Write-Host "[start.ps1] WARNING: mongod not found on PATH. Skipping local MongoDB."
+    Write-Host "[start.ps1] Live dashboard still works. For saved snapshots either:"
+    Write-Host "[start.ps1]   - Install MongoDB Community Server, or"
+    Write-Host "[start.ps1]   - Put an Atlas URI in backend\.env as MONGO_URI=mongodb+srv://..."
 }
 
 # ---- Step 2: Backend ----
