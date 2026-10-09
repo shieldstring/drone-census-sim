@@ -24,14 +24,14 @@ export default function HeatMap({ zoneCounts, activeZone }) {
               center={coords}
               radius={Math.max(10, Math.min(42, 10 + count / 2))}
               pathOptions={{
-                color: active ? "#0f766e" : "#c45c26",
+                color: active ? "#0f766e" : "#c2410c",
                 fillColor: active ? "#14b8a6" : "#ea580c",
                 fillOpacity: active ? 0.55 : 0.35,
                 weight: active ? 3 : 2,
               }}
             >
               <Tooltip>
-                {zone}: {count} unique
+                {zone}: {count} unique people
               </Tooltip>
             </CircleMarker>
           );

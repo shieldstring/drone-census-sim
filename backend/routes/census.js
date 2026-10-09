@@ -55,4 +55,27 @@ router.get("/export", async (req, res) => {
   }
 });
 
+router.get("/export.csv", async (req, res) => {
+  if (!mongoReady()) return res.status(503).json({ error: "MongoDB not connected" });
+  try {
+    const snapshots = await ZoneSnapshot.find().sort({ timestamp: 1 }).lean();
+    const header = "timestamp,zone,currentFrameCount,uniqueTotal,altitudeM,densityEstimate";
+    const rows = snapshots.map((s) =>
+      [
+        s.timestamp ?? "",
+        JSON.stringify(s.zone ?? ""),
+        s.currentFrameCount ?? "",
+        s.uniqueTotal ?? "",
+        s.altitudeM ?? "",
+        s.densityEstimate ?? "",
+      ].join(",")
+    );
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=census_export.csv");
+    res.send([header, ...rows].join("\n"));
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
 module.exports = router;

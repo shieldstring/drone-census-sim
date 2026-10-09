@@ -34,6 +34,7 @@ class ZoneCounter:
         self.density = DensityEstimator(config.DENSITY_MODEL) if config.USE_DENSITY_MAP else None
         self.zone_index = 0
         self.frame_count = 0
+        self.last_density = None
 
     @staticmethod
     def encode_frame(frame):
@@ -79,6 +80,13 @@ class ZoneCounter:
                 result = self.tracker.track(frame)
                 annotated = result.plot()
 
+                if self.density is not None and self.frame_count % 30 == 0:
+                    try:
+                        self.last_density = round(self.density.estimate_bgr(frame), 1)
+                    except Exception as err:
+                        print(f"[counter] Density estimate failed: {err}")
+
+                source_kind = self.source.split(":", 1)[0] if self.source else "video"
                 payload = {
                     "timestamp": time.time(),
                     "zone": self.current_zone(),
@@ -86,10 +94,10 @@ class ZoneCounter:
                     "current_frame_count": len(result.boxes) if result.boxes is not None else 0,
                     "unique_total": self.tracker.total_unique,
                     "altitude_m": config.ALTITUDE_SIMULATION,
+                    "density_enabled": self.density is not None,
+                    "density_estimate": self.last_density,
+                    "source": source_kind,
                 }
-
-                if self.density is not None and self.frame_count % 30 == 0:
-                    payload["density_estimate"] = None  # populated when a real tensor pipeline is wired in
 
                 if config.STREAM_VIDEO and self.frame_count % config.STREAM_EVERY_N_FRAMES == 0:
                     frame_b64 = self.encode_frame(annotated)

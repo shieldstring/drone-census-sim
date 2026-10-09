@@ -49,3 +49,18 @@ class DensityEstimator:
         with torch.no_grad():
             density_map = self.model(frame_tensor)
         return float(density_map.sum().item())
+
+    def estimate_bgr(self, frame_bgr):
+        """Run density estimation on an OpenCV BGR frame; returns approximate head count."""
+        import cv2
+        import numpy as np
+
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        h, w = rgb.shape[:2]
+        # Keep inference bounded for live survey streaming
+        max_side = 640
+        if max(h, w) > max_side:
+            scale = max_side / max(h, w)
+            rgb = cv2.resize(rgb, (int(w * scale), int(h * scale)))
+        tensor = torch.from_numpy(rgb.transpose(2, 0, 1)).float().unsqueeze(0) / 255.0
+        return self.estimate(tensor)

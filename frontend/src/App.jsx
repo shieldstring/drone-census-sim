@@ -15,7 +15,7 @@ export default function App() {
   const [linkStatus, setLinkStatus] = useState("connecting");
 
   const statusLabel =
-    linkStatus === "live" ? "Mission live" : linkStatus === "offline" ? "Link down" : "Connecting";
+    linkStatus === "live" ? "Live" : linkStatus === "offline" ? "Offline" : "Connecting";
 
   return (
     <div className="app-shell">
@@ -23,7 +23,7 @@ export default function App() {
         <div className="brand-block">
           <h1 className="brand">Aether Census</h1>
           <p className="brand-sub">
-            Drone-based population survey console — live detection, zone aggregation, and density mapping.
+            Drone population census — detect, track, zone-aggregate, density cross-check
           </p>
         </div>
 
