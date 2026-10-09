@@ -1,10 +1,14 @@
 # Drone-Based Population Census - Simulation
 
 A fully software-simulated drone census system: no physical drone or hardware
-required. Pre-recorded video, a webcam, or Microsoft AirSim (flown over a
-simulated Unreal Engine environment with pedestrian NPCs) all feed the same
-AI pipeline through one abstraction layer, so the rest of the stack never
-changes based on where frames come from.
+required. Pre-recorded video, a webcam, or **Flight Simulation (AirSim +
+Unreal Engine)** all feed the same AI pipeline through one abstraction layer.
+
+AirSim is a free, open-source Microsoft simulator that runs inside Unreal
+Engine and exposes a Python API to control drones autonomously — takeoff,
+waypoints, and frames from a virtual onboard camera. Unreal environments
+(cities, neighborhoods, open areas) can be loaded directly; pedestrian NPC
+characters are the population to be counted. Details: `simulation/README.md`.
 
 ## Architecture
 

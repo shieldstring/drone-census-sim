@@ -140,11 +140,28 @@ fi
 ) > "$LOG_DIR/ai_pipeline.log" 2>&1 &
 PIDS+=($!)
 
+if [ "$MODE" = "airsim" ]; then
+  echo "[start.sh] Starting autonomous AirSim survey flight..."
+  (
+    cd "$ROOT_DIR"
+    "$VENV_DIR/bin/python" -m pip install -r requirements-airsim.txt --quiet
+    if [ -n "${AIRSIM_HOST:-}" ]; then
+      export AIRSIM_HOST
+    fi
+    sleep 5
+    "$VENV_DIR/bin/python" -m simulation.airsim_flight
+  ) > "$LOG_DIR/airsim_flight.log" 2>&1 &
+  PIDS+=($!)
+fi
+
 echo ""
 echo "[start.sh] All components launched."
 echo "[start.sh] Dashboard:  http://localhost:5173"
 echo "[start.sh] Backend:    http://localhost:8080"
 echo "[start.sh] Logs:       $LOG_DIR"
+if [ "$MODE" = "airsim" ]; then
+  echo "[start.sh] AirSim:     Unreal sim + autonomous survey + live camera census"
+fi
 echo "[start.sh] Press Ctrl+C to stop everything."
 echo ""
 

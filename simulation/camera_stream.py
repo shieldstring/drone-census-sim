@@ -38,18 +38,26 @@ class WebcamStream(VideoFileStream):
 
 
 class AirSimStream:
-    def __init__(self, image_type=0):
+    """
+    Live frames from AirSim's virtual onboard camera (Unreal Engine).
+    Pair with simulation.airsim_flight for autonomous survey while this
+    stream feeds ai_pipeline.counter — no physical drone required.
+    """
+
+    def __init__(self, image_type=0, camera_name="0"):
         import airsim
 
         host = os.environ.get("AIRSIM_HOST", "127.0.0.1")
+        print(f"[camera_stream] AirSim camera connect -> {host}")
         self.client = airsim.MultirotorClient(ip=host)
         self.client.confirmConnection()
         self.image_type = image_type
+        self.camera_name = camera_name
 
     def read(self):
         import numpy as np
 
-        resp = self.client.simGetImage("0", self.image_type)
+        resp = self.client.simGetImage(self.camera_name, self.image_type)
         if resp is None:
             return False, None
         arr = cv2.imdecode(np.frombuffer(resp, np.uint8), cv2.IMREAD_COLOR)

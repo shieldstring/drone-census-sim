@@ -242,8 +242,18 @@ if ($Mode -eq "airsim") {
         if ($AirsimArgs -and $AirsimArgs.Trim() -ne "") {
             $argList = $AirsimArgs -split "\s+"
         }
+        # Install project AirSim settings (downward camera) for this user if missing
+        $airsimSettingsDir = Join-Path $env:USERPROFILE "Documents\AirSim"
+        $airsimSettings = Join-Path $airsimSettingsDir "settings.json"
+        $projectSettings = Join-Path $RootDir "simulation\settings.json"
+        if ((Test-Path $projectSettings) -and -not (Test-Path $airsimSettings)) {
+            New-Item -ItemType Directory -Force -Path $airsimSettingsDir | Out-Null
+            Copy-Item $projectSettings $airsimSettings
+            Write-Host "[start.ps1] Installed simulation\settings.json -> Documents\AirSim\settings.json"
+        }
+
         Start-Process -FilePath $AirsimPath -ArgumentList $argList
-        Write-Host "[start.ps1] Waiting $BootWait seconds for AirSim to finish loading..."
+        Write-Host "[start.ps1] Waiting $BootWait seconds for AirSim / Unreal to finish loading..."
         Start-Sleep -Seconds $BootWait
     }
 }
@@ -279,11 +289,28 @@ $aiJob = Start-Job -ScriptBlock {
 }
 $Jobs += $aiJob
 
+# Autonomous survey flight (AirSim mode only) — takeoff + waypoints while camera streams
+if ($Mode -eq "airsim") {
+    Write-Host "[start.ps1] Starting autonomous AirSim survey flight..."
+    $flightJob = Start-Job -ScriptBlock {
+        Set-Location $using:RootDir
+        if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
+        & $using:VenvPython -m pip install -r requirements-airsim.txt --quiet
+        Start-Sleep -Seconds 5
+        & $using:VenvPython -m simulation.airsim_flight 2>&1 |
+            Out-File "$using:LogDir\airsim_flight.log"
+    }
+    $Jobs += $flightJob
+}
+
 Write-Host ""
 Write-Host "[start.ps1] All components launched."
 Write-Host "[start.ps1] Dashboard:  http://localhost:5173"
 Write-Host "[start.ps1] Backend:    http://localhost:8080"
 Write-Host "[start.ps1] Logs:       $LogDir"
+if ($Mode -eq "airsim") {
+    Write-Host "[start.ps1] AirSim:     Unreal sim + autonomous survey + live camera census"
+}
 Write-Host "[start.ps1] Press Ctrl+C to stop everything."
 Write-Host ""
 
