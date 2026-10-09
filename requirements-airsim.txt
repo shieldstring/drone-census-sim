@@ -1,0 +1,4 @@
+# Optional - only needed for AirSim live simulation mode:
+#   .\scripts\start.ps1 -Airsim
+#   ./scripts/start.sh --airsim
+airsim>=1.8.1
