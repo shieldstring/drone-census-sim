@@ -9,6 +9,7 @@
     .\scripts\setup_airsim.ps1
     .\scripts\setup_airsim.ps1 -EnvName CityEnviron
     .\scripts\setup_airsim.ps1 -EnvName AirSimNH
+    .\scripts\setup_airsim.ps1 -Force   # delete zips and re-download
 
   CityEnviron is multi-GB and split into .zip.001 / .002 parts. 7-Zip is
   required to extract those (https://www.7-zip.org/).
@@ -20,7 +21,8 @@ param(
     # CityEnviron = large city with pedestrians (default).
     # AirSimNH = urban neighborhood (smaller download).
     # Blocks = empty test cubes (NOT useful for census).
-    [string]$EnvName = "CityEnviron"
+    [string]$EnvName = "CityEnviron",
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +32,57 @@ $DownloadDir = Join-Path $RootDir "airsim_env"
 $EnvDir = Join-Path $DownloadDir $EnvName
 New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 New-Item -ItemType Directory -Force -Path $EnvDir | Out-Null
+
+function Format-Bytes([long]$Bytes) {
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return "{0:N1} MB" -f ($Bytes / 1MB) }
+    return "$Bytes bytes"
+}
+
+function Get-SevenZip {
+    @(
+        "${env:ProgramFiles}\7-Zip\7z.exe",
+        "${env:ProgramFiles(x86)}\7-Zip\7z.exe",
+        "7z"
+    ) | Where-Object { $_ -eq "7z" -or (Test-Path $_) } | Select-Object -First 1
+}
+
+function Download-Asset {
+    param(
+        [string]$Url,
+        [string]$OutPath,
+        [long]$ExpectedSize
+    )
+
+    $tmpPath = "$OutPath.partial"
+    if (Test-Path $tmpPath) { Remove-Item -Force $tmpPath }
+
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        # Prefer curl: more reliable for multi-GB GitHub assets than Invoke-WebRequest.
+        & curl.exe -L --fail --retry 3 --retry-delay 5 -o $tmpPath $Url
+        if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $tmpPath) { Remove-Item -Force $tmpPath }
+            throw "curl download failed (exit $LASTEXITCODE) for $Url"
+        }
+    } else {
+        Invoke-WebRequest -Uri $Url -OutFile $tmpPath
+    }
+
+    if (-not (Test-Path $tmpPath)) {
+        throw "Download produced no file: $OutPath"
+    }
+
+    $actual = (Get-Item $tmpPath).Length
+    if ($ExpectedSize -gt 0 -and $actual -ne $ExpectedSize) {
+        Remove-Item -Force $tmpPath
+        throw ("Downloaded size mismatch for {0}: got {1}, expected {2}. Re-run the script." -f `
+            (Split-Path $OutPath -Leaf), (Format-Bytes $actual), (Format-Bytes $ExpectedSize))
+    }
+
+    if (Test-Path $OutPath) { Remove-Item -Force $OutPath }
+    Move-Item -Force $tmpPath $OutPath
+}
 
 Write-Host "[setup_airsim.ps1] Looking up AirSim Windows releases for '$EnvName'..."
 Write-Host "[setup_airsim.ps1] Tip: CityEnviron has pedestrians; AirSimNH is urban streets; Blocks has NO people."
@@ -62,17 +115,58 @@ if (-not $matched -or $matched.Count -eq 0) {
 }
 
 Write-Host "[setup_airsim.ps1] Found $($matched.Count) file(s) in release $($targetRelease.tag_name)"
+$totalExpected = ($matched | Measure-Object -Property size -Sum).Sum
+Write-Host "[setup_airsim.ps1] Expected total download: $(Format-Bytes $totalExpected)"
+
+if ($Force) {
+    Write-Host "[setup_airsim.ps1] -Force: removing previous zip parts under $EnvDir"
+    Get-ChildItem -Path $EnvDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "$EnvName.zip*" -or $_.Name -like "*.partial" } |
+        Remove-Item -Force
+}
 
 $downloaded = @()
 foreach ($asset in $matched) {
     $outPath = Join-Path $EnvDir $asset.name
-    if ((Test-Path $outPath) -and ((Get-Item $outPath).Length -gt 1000000)) {
-        Write-Host "[setup_airsim.ps1] Already have $($asset.name) - skipping download"
-    } else {
-        Write-Host "[setup_airsim.ps1] Downloading $($asset.name) ($([math]::Round($asset.size/1MB)) MB)..."
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $outPath
+    $needDownload = $true
+
+    if ((Test-Path $outPath)) {
+        $localSize = (Get-Item $outPath).Length
+        if ($localSize -eq [long]$asset.size) {
+            Write-Host "[setup_airsim.ps1] OK $($asset.name) ($(Format-Bytes $localSize)) - skipping download"
+            $needDownload = $false
+        } else {
+            Write-Host "[setup_airsim.ps1] Incomplete/corrupt $($asset.name): local $(Format-Bytes $localSize), expected $(Format-Bytes $asset.size) - re-downloading"
+            Remove-Item -Force $outPath
+        }
+    }
+
+    if ($needDownload) {
+        Write-Host "[setup_airsim.ps1] Downloading $($asset.name) ($(Format-Bytes $asset.size))..."
+        try {
+            Download-Asset -Url $asset.browser_download_url -OutPath $outPath -ExpectedSize ([long]$asset.size)
+        } catch {
+            Write-Host "[setup_airsim.ps1] ERROR: $_"
+            Write-Host "[setup_airsim.ps1] Tip: retry with:"
+            Write-Host "[setup_airsim.ps1]   .\scripts\setup_airsim.ps1 -EnvName $EnvName -Force"
+            Write-Host "[setup_airsim.ps1] Or use the smaller map:"
+            Write-Host "[setup_airsim.ps1]   .\scripts\setup_airsim.ps1 -EnvName AirSimNH -Force"
+            exit 1
+        }
+        Write-Host "[setup_airsim.ps1] Saved $($asset.name) ($(Format-Bytes ((Get-Item $outPath).Length)))"
     }
     $downloaded += $outPath
+}
+
+# Final size check across all parts before extract
+foreach ($asset in $matched) {
+    $outPath = Join-Path $EnvDir $asset.name
+    $localSize = (Get-Item $outPath).Length
+    if ($localSize -ne [long]$asset.size) {
+        Write-Host "[setup_airsim.ps1] ERROR: $($asset.name) still wrong size after download."
+        Write-Host "[setup_airsim.ps1] Delete airsim_env\$EnvName\*.zip* and re-run with -Force."
+        exit 1
+    }
 }
 
 Write-Host "[setup_airsim.ps1] Extracting..."
@@ -82,12 +176,7 @@ if ($isMultiPart) {
     $part1 = $downloaded | Where-Object { $_ -like "*.001" } | Select-Object -First 1
     if (-not $part1) { $part1 = $downloaded | Sort-Object | Select-Object -First 1 }
 
-    $sevenZip = @(
-        "${env:ProgramFiles}\7-Zip\7z.exe",
-        "${env:ProgramFiles(x86)}\7-Zip\7z.exe",
-        "7z"
-    ) | Where-Object { $_ -eq "7z" -or (Test-Path $_) } | Select-Object -First 1
-
+    $sevenZip = Get-SevenZip
     if (-not $sevenZip) {
         Write-Host "[setup_airsim.ps1] ERROR: CityEnviron needs 7-Zip to extract split archives."
         Write-Host "[setup_airsim.ps1] Install from https://www.7-zip.org/ then re-run:"
@@ -97,9 +186,21 @@ if ($isMultiPart) {
         exit 1
     }
 
+    # Extract into EnvDir; open the .001 part so 7-Zip finds .002 automatically.
     & $sevenZip x -y "-o$EnvDir" $part1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[setup_airsim.ps1] 7-Zip extract failed (exit $LASTEXITCODE)."
+    $extractCode = $LASTEXITCODE
+    if ($extractCode -ne 0) {
+        Write-Host "[setup_airsim.ps1] 7-Zip extract failed (exit $extractCode)."
+        Write-Host "[setup_airsim.ps1] Usually means a truncated/corrupt download (Headers Error / Data Error)."
+        Write-Host "[setup_airsim.ps1] Fix: delete the bad zips and re-download:"
+        Write-Host "[setup_airsim.ps1]   Remove-Item -Recurse -Force .\airsim_env\$EnvName"
+        Write-Host "[setup_airsim.ps1]   .\scripts\setup_airsim.ps1 -EnvName $EnvName -Force"
+        Write-Host "[setup_airsim.ps1] Or switch to the smaller (~1.7 GB) map:"
+        Write-Host "[setup_airsim.ps1]   .\scripts\setup_airsim.ps1 -EnvName AirSimNH -Force"
+        # Remove zip parts so the next run does not trust them.
+        foreach ($p in $downloaded) {
+            if (Test-Path $p) { Remove-Item -Force $p }
+        }
         exit 1
     }
 } else {
