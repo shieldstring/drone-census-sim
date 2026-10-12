@@ -93,18 +93,32 @@ class ZoneCounter:
                     except TypeError:
                         box_count = 0
 
+                faces_n = int(getattr(result, "faces_in_frame", 0) or 0)
+                persons_n = int(getattr(result, "persons_in_frame", 0) or 0)
                 source_kind = self.source.split(":", 1)[0] if self.source else "video"
+                mode = (config.DETECT_MODE or "both").lower()
+                if mode == "face":
+                    unit = "faces"
+                elif mode == "person":
+                    unit = "persons"
+                else:
+                    unit = "people"
+
                 payload = {
                     "timestamp": time.time(),
                     "zone": self.current_zone(),
                     "frame_count": self.frame_count,
                     "current_frame_count": box_count,
+                    "faces_in_frame": faces_n,
+                    "persons_in_frame": persons_n,
                     "unique_total": self.tracker.total_unique,
                     "altitude_m": config.ALTITUDE_SIMULATION,
                     "density_enabled": self.density is not None,
                     "density_estimate": self.last_density,
                     "source": source_kind,
-                    "tracker_mode": getattr(self.tracker, "mode", "yolo"),
+                    "tracker_mode": getattr(self.tracker, "mode", mode),
+                    "detect_mode": mode,
+                    "count_unit": unit,
                 }
 
                 if config.STREAM_VIDEO and self.frame_count % config.STREAM_EVERY_N_FRAMES == 0:

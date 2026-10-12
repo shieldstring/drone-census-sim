@@ -37,7 +37,9 @@ export default function VideoFeed({ data, zone, altitude }) {
       <div className="hud-tag">
         <span className="hud-pill">{zone || "Survey"}</span>
         <span className="hud-pill">{altitude ?? "—"} m AGL</span>
-        <span className="hud-pill">{data?.current_frame_count ?? 0} in frame</span>
+        <span className="hud-pill">{data?.current_frame_count ?? 0} people</span>
+        <span className="hud-pill">{data?.faces_in_frame ?? 0} faces</span>
+        <span className="hud-pill">{data?.persons_in_frame ?? 0} persons</span>
         {data?.density_estimate != null && (
           <span className="hud-pill">density ~{data.density_estimate}</span>
         )}

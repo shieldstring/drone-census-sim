@@ -184,12 +184,15 @@ export default function Dashboard({ onStatusChange }) {
         <article className="metric">
           <span className="metric-label">In frame now</span>
           <div className="metric-value">{formatNumber(latest?.current_frame_count)}</div>
-          <div className="metric-sub">YOLO detections this frame</div>
+          <div className="metric-sub">
+            Faces {formatNumber(latest?.faces_in_frame)} · Persons{" "}
+            {formatNumber(latest?.persons_in_frame)}
+          </div>
         </article>
         <article className="metric">
-          <span className="metric-label">Unique tracked</span>
+          <span className="metric-label">Unique people counted</span>
           <div className="metric-value">{formatNumber(latest?.unique_total)}</div>
-          <div className="metric-sub">ByteTrack IDs (anti double-count)</div>
+          <div className="metric-sub">Faces + persons, no double-count</div>
         </article>
         <article className="metric">
           <span className="metric-label">Density estimate</span>
@@ -341,12 +344,13 @@ export default function Dashboard({ onStatusChange }) {
           <div className="panel-body">
             <div className="method-list">
               <div className="method-item">
-                <h3>1. YOLO + ByteTrack (primary)</h3>
+                <h3>1. Face + person detection (primary)</h3>
                 <p>
-                  Detects people in each aerial frame and assigns persistent IDs so the same person
-                  is not counted twice as the drone moves across a zone.
+                  Detects faces (YuNet/Haar) and full-body persons (YOLO class “person” only) —
+                  never cars or other objects. A face inside a person box shares that ID so nobody
+                  is counted twice.
                 </p>
-                <span className="tag">Always on</span>
+                <span className="tag">Faces + persons</span>
               </div>
               <div className="method-item">
                 <h3>2. CSRNet density map (optional cross-check)</h3>

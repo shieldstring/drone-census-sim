@@ -91,7 +91,9 @@ python -m ai_pipeline.counter --source "video:datasets/DroneCrowd/sample.mp4"
 |---|---|---|
 | `VIDEO_SOURCE` | `video:datasets/DroneCrowd/sample.mp4` | Frame source string: `video:<path>`, `webcam:<index>`, or `airsim` |
 | `WS_SERVER` | `ws://localhost:8080/ai` | Backend WebSocket endpoint the AI pipeline sends to |
-| `CONFIDENCE_THRESHOLD` | `0.35` | YOLOv8 detection confidence cutoff |
+| `DETECT_MODE` | `both` | `both` = faces + persons; `face` / `person` for one type only (never cars/other objects) |
+| `FACE_MODEL` | _(empty)_ | Optional Ultralytics face `.pt` weights; otherwise OpenCV YuNet/Haar |
+| `CONFIDENCE_THRESHOLD` | `0.45` | Detection confidence cutoff |
 | `USE_DENSITY_MAP` | `false` | Enable the optional CSRNet density cross-check |
 | `STREAM_VIDEO` | `true` | Whether to stream annotated frames to the dashboard |
 | `AIRSIM_HOST` | `127.0.0.1` | Set to a remote machine's IP to connect to AirSim running elsewhere (used by macOS clients) |
