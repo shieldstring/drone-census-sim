@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # setup_airsim.sh - downloads a prebuilt AirSim Unreal environment
-# (default: "Blocks") from the microsoft/AirSim GitHub releases for Linux,
+# (default: CityEnviron — city with pedestrians).
+# Smaller urban map: ./scripts/setup_airsim.sh AirSimNH
 # extracts it, and writes AIRSIM_BINARY_PATH into scripts/.env.
 
 set -euo pipefail
 
-ENV_NAME="${1:-Blocks}"
+ENV_NAME="${1:-CityEnviron}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOWNLOAD_DIR="$ROOT_DIR/airsim_env"
 mkdir -p "$DOWNLOAD_DIR"

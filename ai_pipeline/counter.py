@@ -35,6 +35,8 @@ class ZoneCounter:
         self.zone_index = 0
         self.frame_count = 0
         self.last_density = None
+        # Per-zone confirmed unique IDs (fixes webcam showing ~30 for one person)
+        self.zone_ids = {z: set() for z in config.GRID_ZONES}
 
     @staticmethod
     def encode_frame(frame):
@@ -52,6 +54,7 @@ class ZoneCounter:
         zone = config.GRID_ZONES[self.zone_index % len(config.GRID_ZONES)]
         if self.frame_count and self.frame_count % config.FRAMES_PER_ZONE == 0:
             self.zone_index += 1
+            zone = config.GRID_ZONES[self.zone_index % len(config.GRID_ZONES)]
         return zone
 
     async def _connect(self):
@@ -77,6 +80,7 @@ class ZoneCounter:
                     continue
 
                 self.frame_count += 1
+                zone = self.current_zone()
                 result = self.tracker.track(frame)
                 annotated = result.plot()
 
@@ -95,6 +99,21 @@ class ZoneCounter:
 
                 faces_n = int(getattr(result, "faces_in_frame", 0) or 0)
                 persons_n = int(getattr(result, "persons_in_frame", 0) or 0)
+                extras = getattr(result, "extras", None) or {}
+                active = extras.get("active_ids") or []
+                if result.boxes is not None and getattr(result.boxes, "id", None) is not None and not active:
+                    try:
+                        active = [int(x) for x in result.boxes.id.tolist()]
+                    except Exception:
+                        active = []
+
+                confirmed = self.tracker.confirmed_ids_in(active)
+                self.zone_ids.setdefault(zone, set()).update(confirmed)
+
+                zone_unique = len(self.zone_ids[zone])
+                zone_uniques = {z: len(ids) for z, ids in self.zone_ids.items()}
+                session_unique = self.tracker.total_unique
+
                 source_kind = self.source.split(":", 1)[0] if self.source else "video"
                 mode = (config.DETECT_MODE or "both").lower()
                 if mode == "face":
@@ -106,12 +125,16 @@ class ZoneCounter:
 
                 payload = {
                     "timestamp": time.time(),
-                    "zone": self.current_zone(),
+                    "zone": zone,
                     "frame_count": self.frame_count,
                     "current_frame_count": box_count,
                     "faces_in_frame": faces_n,
                     "persons_in_frame": persons_n,
-                    "unique_total": self.tracker.total_unique,
+                    # Dashboard zone cards use this — scoped to the active zone only
+                    "unique_total": zone_unique,
+                    "zone_unique": zone_unique,
+                    "zone_uniques": zone_uniques,
+                    "session_unique": session_unique,
                     "altitude_m": config.ALTITUDE_SIMULATION,
                     "density_enabled": self.density is not None,
                     "density_estimate": self.last_density,

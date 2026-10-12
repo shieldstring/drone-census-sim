@@ -139,10 +139,14 @@ function Read-DotEnv {
 }
 
 $envValues = Read-DotEnv -Path $EnvFile
+$AirsimEnvName = "CityEnviron"
 if ($envValues.ContainsKey("AIRSIM_BINARY_PATH")) { $AirsimPath = $envValues["AIRSIM_BINARY_PATH"] }
 if ($envValues.ContainsKey("AIRSIM_BINARY_ARGS")) { $AirsimArgs = $envValues["AIRSIM_BINARY_ARGS"] }
 if ($envValues.ContainsKey("AIRSIM_BOOT_WAIT")) { $BootWait = [int]$envValues["AIRSIM_BOOT_WAIT"] }
 if ($envValues.ContainsKey("AIRSIM_HOST")) { $AirsimHost = $envValues["AIRSIM_HOST"] }
+if ($envValues.ContainsKey("AIRSIM_ENV_NAME") -and $envValues["AIRSIM_ENV_NAME"].Trim() -ne "") {
+    $AirsimEnvName = $envValues["AIRSIM_ENV_NAME"].Trim()
+}
 
 if ($AirsimHost) {
     $env:AIRSIM_HOST = $AirsimHost
@@ -225,12 +229,20 @@ if ($Mode -eq "airsim") {
     $pathIsUsable = $AirsimPath -and (Test-Path $AirsimPath)
 
     if (-not $pathIsUsable) {
-        Write-Host "[start.ps1] No usable AIRSIM_BINARY_PATH found. Running setup_airsim.ps1 to download it now."
-        & (Join-Path $PSScriptRoot "setup_airsim.ps1")
+        Write-Host "[start.ps1] No usable AIRSIM_BINARY_PATH found."
+        Write-Host "[start.ps1] Downloading urban env '$AirsimEnvName' (not empty Blocks)..."
+        & (Join-Path $PSScriptRoot "setup_airsim.ps1") -EnvName $AirsimEnvName
 
         $envValues = Read-DotEnv -Path $EnvFile
         if ($envValues.ContainsKey("AIRSIM_BINARY_PATH")) { $AirsimPath = $envValues["AIRSIM_BINARY_PATH"] }
         $pathIsUsable = $AirsimPath -and (Test-Path $AirsimPath)
+    }
+
+    if ($AirsimPath -and ($AirsimPath -like "*Blocks*")) {
+        Write-Host "[start.ps1] WARNING: Blocks has no pedestrians - census video will look empty."
+        Write-Host "[start.ps1] For a crowd/city map run:"
+        Write-Host "[start.ps1]   .\scripts\setup_airsim.ps1 -EnvName CityEnviron"
+        Write-Host "[start.ps1]   (needs 7-Zip, multi-GB download)  OR  -EnvName AirSimNH"
     }
 
     if (-not $pathIsUsable) {

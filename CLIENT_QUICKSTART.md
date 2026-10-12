@@ -60,12 +60,19 @@ Other modes:
 ```
 
 `-Airsim` starts **Flight Simulation (AirSim + Unreal Engine)**:
-downloads a prebuilt Unreal/AirSim environment on first run, flies an
-autonomous survey (takeoff → waypoints → land), and streams the virtual
-onboard camera into the same AI census pipeline. Pedestrian NPCs in the
-Unreal map are the population being counted. See `simulation/README.md`.
+downloads **CityEnviron** by default (city with pedestrians — not empty Blocks),
+flies an autonomous survey, and streams the virtual camera into the AI census
+pipeline. See `simulation/README.md`.
 
-First AirSim download is several GB and can take a while.
+Requires [7-Zip](https://www.7-zip.org/) (~3 GB split download on first run):
+
+```powershell
+.\scripts\start.ps1 -Airsim
+# or explicitly:
+.\scripts\setup_airsim.ps1 -EnvName CityEnviron
+```
+
+First AirSim download is large and can take a while.
 
 ## 5. Open the dashboard
 

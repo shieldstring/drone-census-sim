@@ -33,3 +33,11 @@ STREAM_JPEG_QUALITY = int(os.environ.get("STREAM_JPEG_QUALITY", "60"))
 
 # Ignore tiny false positives (pixels). Raise for high-altitude aerial footage.
 MIN_FACE_SIZE = int(os.environ.get("MIN_FACE_SIZE", "20"))
+
+# An ID must be seen this many frames before it counts toward unique_total.
+# Stops webcam flicker (1 person) from creating dozens of fake unique IDs.
+MIN_HITS_FOR_UNIQUE = int(os.environ.get("MIN_HITS_FOR_UNIQUE", "10"))
+
+# Max centroid jump (pixels) to keep the same track ID between frames.
+TRACK_MATCH_DIST_PERSON = float(os.environ.get("TRACK_MATCH_DIST_PERSON", "120"))
+TRACK_MATCH_DIST_FACE = float(os.environ.get("TRACK_MATCH_DIST_FACE", "80"))

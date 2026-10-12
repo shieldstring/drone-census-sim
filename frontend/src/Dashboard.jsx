@@ -66,22 +66,43 @@ export default function Dashboard({ onStatusChange }) {
     for (const zone of ZONES) {
       stats[zone] = { unique: 0, current: 0, density: null, frames: 0 };
     }
+
+    // Prefer authoritative per-zone map from the latest AI payload
+    const map = latest?.zone_uniques;
+    if (map && typeof map === "object") {
+      for (const zone of ZONES) {
+        if (map[zone] != null) stats[zone].unique = Number(map[zone]) || 0;
+      }
+    }
+
     for (const point of history) {
       if (!stats[point.zone]) continue;
-      stats[point.zone].unique = point.unique_total ?? stats[point.zone].unique;
-      stats[point.zone].current = point.current_frame_count ?? 0;
+      // zone_unique / unique_total are now scoped to that zone (not session-wide)
+      if (!map) {
+        const u = point.zone_unique ?? point.unique_total;
+        if (u != null) stats[point.zone].unique = u;
+      }
+      if (point.zone === latest?.zone) {
+        stats[point.zone].current = point.current_frame_count ?? 0;
+      }
       stats[point.zone].frames = point.frame_count ?? stats[point.zone].frames;
       if (point.density_estimate != null) {
         stats[point.zone].density = point.density_estimate;
       }
     }
+    if (latest?.zone && stats[latest.zone]) {
+      stats[latest.zone].current = latest.current_frame_count ?? stats[latest.zone].current;
+      if (latest.zone_unique != null) stats[latest.zone].unique = latest.zone_unique;
+    }
     return stats;
-  }, [history]);
+  }, [history, latest]);
 
-  const censusTotal = useMemo(
-    () => ZONES.reduce((sum, zone) => sum + (zoneStats[zone].unique || 0), 0),
-    [zoneStats]
-  );
+  const censusTotal = useMemo(() => {
+    if (latest?.zone_uniques) {
+      return ZONES.reduce((sum, zone) => sum + (Number(latest.zone_uniques[zone]) || 0), 0);
+    }
+    return ZONES.reduce((sum, zone) => sum + (zoneStats[zone].unique || 0), 0);
+  }, [zoneStats, latest]);
 
   const chartData = history.map((h) => ({
     frame: h.frame_count,
@@ -190,9 +211,13 @@ export default function Dashboard({ onStatusChange }) {
           </div>
         </article>
         <article className="metric">
-          <span className="metric-label">Unique people counted</span>
-          <div className="metric-value">{formatNumber(latest?.unique_total)}</div>
-          <div className="metric-sub">Faces + persons, no double-count</div>
+          <span className="metric-label">Unique in this zone</span>
+          <div className="metric-value">
+            {formatNumber(latest?.zone_unique ?? latest?.unique_total)}
+          </div>
+          <div className="metric-sub">
+            Session unique {formatNumber(latest?.session_unique ?? latest?.unique_total)}
+          </div>
         </article>
         <article className="metric">
           <span className="metric-label">Density estimate</span>

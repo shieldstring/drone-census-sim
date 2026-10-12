@@ -105,7 +105,8 @@ path/args/boot-wait and `AIRSIM_HOST`, read by the launcher scripts.
 
 `scripts/setup_airsim.sh` / `scripts/setup_airsim.ps1` resolve the latest
 matching release from `microsoft/AirSim`'s GitHub releases, download the
-prebuilt "Blocks" environment (a few GB), extract it, and write
-`AIRSIM_BINARY_PATH` into `scripts/.env`. The launcher scripts call this
-automatically the first time `--airsim` / `-Airsim` is used if no binary path
-is already configured.
+prebuilt **CityEnviron** map (city with pedestrians, multi-GB split zip;
+requires 7-Zip on Windows), extract it, and write `AIRSIM_BINARY_PATH` into
+`scripts/.env`. The launcher scripts call this automatically the first time
+`--airsim` / `-Airsim` is used if no binary path is already configured.
+Use `-EnvName AirSimNH` for a smaller urban map without the full city.

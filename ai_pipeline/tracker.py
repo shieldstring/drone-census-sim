@@ -181,16 +181,20 @@ class PersonTracker:
     PERSON_CLASS_ID = 0
 
     def __init__(self, model_path=None):
-        self._seen_ids = set()
+        self._seen_ids = set()          # confirmed unique people (after MIN_HITS)
+        self._hit_counts = {}           # id -> consecutive/total hits
         self._next_id = 1
+        # id -> (cx, cy, age_frames_unseen)
         self._prev_person_centroids = {}
         self._prev_orphan_face_centroids = {}
+        self._max_coast = 45            # keep lost tracks ~1.5s at 30fps
 
         raw = config.DETECT_MODE if config.DETECT_MODE in ("face", "person", "both") else "both"
         self.detect_mode = raw
         self.model = None
         self._face_detect = None
         self._face_backend_name = None
+        self._face_yolo = None
         self.mode = raw
 
         want_faces = raw in ("face", "both")
@@ -239,15 +243,16 @@ class PersonTracker:
         if self.detect_mode in ("person", "both") and self.model is not None:
             person_boxes, person_scores = self._detect_persons(frame)
 
-        # Assign IDs: persons first, then orphan faces
-        person_ids = self._match_ids(person_boxes, self._prev_person_centroids, thresh=90.0)
-        if person_ids is not None:
-            for tid in person_ids.tolist():
-                self._seen_ids.add(int(tid))
+        # Assign IDs: persons first, then orphan faces (faces inside a person share that ID)
+        person_ids = self._match_ids(
+            person_boxes,
+            self._prev_person_centroids,
+            thresh=config.TRACK_MATCH_DIST_PERSON,
+        )
 
         orphan_faces = []
         orphan_scores = []
-        face_labels = []  # (box, score, id_or_None, linked_person_id_or_None)
+        face_labels = []  # (box, score, tid, linked_to_person)
 
         for i, fbox in enumerate(face_boxes):
             score = float(face_scores[i]) if i < len(face_scores) else 1.0
@@ -259,6 +264,7 @@ class PersonTracker:
                         break
             if linked is not None:
                 face_labels.append((fbox, score, linked, True))
+                self._register_hit(linked)
             else:
                 orphan_faces.append(fbox)
                 orphan_scores.append(score)
@@ -268,23 +274,33 @@ class PersonTracker:
             if orphan_faces
             else np.zeros((0, 4), np.float32)
         )
-        orphan_ids = self._match_ids(orphan_arr, self._prev_orphan_face_centroids, thresh=55.0)
+        orphan_ids = self._match_ids(
+            orphan_arr,
+            self._prev_orphan_face_centroids,
+            thresh=config.TRACK_MATCH_DIST_FACE,
+        )
+
+        active_ids = []
+        if person_ids is not None:
+            for tid in person_ids.tolist():
+                tid = int(tid)
+                self._register_hit(tid)
+                active_ids.append(tid)
         if orphan_ids is not None:
-            for tid in orphan_ids.tolist():
-                self._seen_ids.add(int(tid))
             for i, fbox in enumerate(orphan_arr):
-                face_labels.append((fbox, orphan_scores[i], int(orphan_ids[i]), False))
+                tid = int(orphan_ids[i])
+                self._register_hit(tid)
+                active_ids.append(tid)
+                face_labels.append((fbox, orphan_scores[i], tid, False))
 
         annotated = frame.copy()
         if person_ids is not None:
             for i, pbox in enumerate(person_boxes):
                 conf = f" {person_scores[i]:.2f}" if i < len(person_scores) else ""
                 _draw_box(annotated, pbox, f"person #{int(person_ids[i])}{conf}", COLOR_PERSON_BGR)
-        for fbox, score, tid, linked in face_labels:
-            tag = "face" if not linked else "face"
-            _draw_box(annotated, fbox, f"{tag} #{tid} {score:.2f}", COLOR_FACE_BGR)
+        for fbox, score, tid, _linked in face_labels:
+            _draw_box(annotated, fbox, f"face #{tid} {score:.2f}", COLOR_FACE_BGR)
 
-        # People in this frame = persons + orphan faces (linked faces already counted as persons)
         people_boxes = []
         people_ids = []
         if person_ids is not None:
@@ -308,6 +324,7 @@ class PersonTracker:
             annotated=annotated,
             faces_in_frame=len(face_boxes),
             persons_in_frame=len(person_boxes),
+            extras={"active_ids": active_ids},
         )
 
     def _detect_faces(self, frame):
@@ -342,9 +359,23 @@ class PersonTracker:
             return np.zeros((0, 4), np.float32), np.zeros((0,), np.float32)
         return r0.boxes.xyxy.cpu().numpy(), r0.boxes.conf.cpu().numpy()
 
+    def _register_hit(self, tid: int):
+        """Count toward unique only after the track is stable for MIN_HITS frames."""
+        hits = self._hit_counts.get(tid, 0) + 1
+        self._hit_counts[tid] = hits
+        if hits >= config.MIN_HITS_FOR_UNIQUE:
+            self._seen_ids.add(tid)
+
     def _match_ids(self, boxes: np.ndarray, store: dict, thresh: float = 80.0):
+        # Age out coasting tracks; do NOT wipe store on empty frame (that caused
+        # webcam ID explosions when detection flickered for one person).
+        for pid in list(store.keys()):
+            cx, cy, age = store[pid]
+            store[pid] = (cx, cy, age + 1)
+            if store[pid][2] > self._max_coast:
+                del store[pid]
+
         if len(boxes) == 0:
-            store.clear()
             return None
 
         centroids = [((x1 + x2) / 2.0, (y1 + y2) / 2.0) for x1, y1, x2, y2 in boxes]
@@ -353,7 +384,7 @@ class PersonTracker:
         for i, (cx, cy) in enumerate(centroids):
             best_id = None
             best_dist = thresh
-            for pid, (px, py) in store.items():
+            for pid, (px, py, _age) in store.items():
                 if pid in used_prev:
                     continue
                 dist = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
@@ -367,16 +398,21 @@ class PersonTracker:
                 assigned[i] = self._next_id
                 self._next_id += 1
 
-        store.clear()
-        store.update({assigned[i]: centroids[i] for i in range(len(centroids))})
+        for i, (cx, cy) in enumerate(centroids):
+            store[assigned[i]] = (cx, cy, 0)
         return np.array([assigned[i] for i in range(len(centroids))], dtype=np.int32)
 
     @property
     def total_unique(self):
         return len(self._seen_ids)
 
+    def confirmed_ids_in(self, active_ids):
+        """Confirmed unique IDs among those visible this frame."""
+        return {int(i) for i in active_ids if int(i) in self._seen_ids}
+
     def reset(self):
         self._seen_ids.clear()
+        self._hit_counts.clear()
         self._prev_person_centroids.clear()
         self._prev_orphan_face_centroids.clear()
         self._next_id = 1
