@@ -103,11 +103,16 @@ if (-not (Test-Path $VenvPython)) {
 }
 Write-Host "[start.ps1] Using Python: $VenvPython"
 
+function Get-AirSimThirdParty {
+    return (Join-Path $RootDir "third_party")
+}
+
 function Test-AirSimImport {
     # Windows PowerShell 5.1 + ErrorActionPreference Stop treats native-command
-    # stderr (a failed "import airsim") as a terminating error. Probe via cmd
-    # so a missing package does not abort the launcher.
-    cmd.exe /c "`"$VenvPython`" -c `"import airsim`" >nul 2>&1" | Out-Null
+    # stderr as a terminating error. Probe via cmd with PYTHONPATH set to the
+    # vendored third_party/airsim client (do not pip-install PyPI airsim).
+    $tp = Get-AirSimThirdParty
+    cmd.exe /c "set PYTHONPATH=$tp&& `"$VenvPython`" -c `"from simulation.airsim_bootstrap import import_airsim; import_airsim()`" >nul 2>&1" | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -119,82 +124,30 @@ function Invoke-VenvPip {
     return ($LASTEXITCODE -eq 0)
 }
 
-function Install-AirSimFromZip {
-    # No git required: download AirSim release zip and copy PythonClient/airsim
-    # into the venv site-packages.
-    $prevEA = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $zipUrl = "https://github.com/microsoft/AirSim/archive/refs/tags/v1.8.1.zip"
-        $tmpRoot = Join-Path $env:TEMP "drone-census-airsim-py"
-        $zipPath = Join-Path $tmpRoot "AirSim-1.8.1.zip"
-        $extractDir = Join-Path $tmpRoot "extract"
-        New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
-        if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-
-        Write-Host "[start.ps1] Downloading AirSim PythonClient zip (no git needed)..."
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
-        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-
-        $src = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "airsim" |
-            Where-Object { $_.FullName -match "PythonClient[\\/]airsim$" } |
-            Select-Object -First 1
-        if (-not $src) {
-            Write-Host "[start.ps1] Could not find PythonClient\airsim inside the zip."
-            return $false
-        }
-
-        $site = (& $VenvPython -c "import site; print(site.getsitepackages()[0])").Trim()
-        if (-not $site) {
-            Write-Host "[start.ps1] Could not resolve venv site-packages."
-            return $false
-        }
-        $dest = Join-Path $site "airsim"
-        if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-        Copy-Item -Recurse -Force $src.FullName $dest
-        Write-Host "[start.ps1] Copied airsim client -> $dest"
-        return (Test-AirSimImport)
-    } catch {
-        Write-Host "[start.ps1] Zip install failed: $($_.Exception.Message)"
-        return $false
-    } finally {
-        $ErrorActionPreference = $prevEA
-    }
-}
-
 function Ensure-AirSimPython {
-    # Install AirSim Python client into .venv. Returns a single bool.
-    # PyPI airsim imports numpy during build - install deps first, then
-    # --no-build-isolation --no-deps. Fall back to zip copy if needed.
-    $ok = $false
-    if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package already installed."
-        return $true
+    # Runtime deps only. The airsim client is vendored at third_party/airsim
+    # because the PyPI package setup.py breaks on modern Python.
+    $vendored = Join-Path (Get-AirSimThirdParty) "airsim"
+    if (-not (Test-Path (Join-Path $vendored "__init__.py"))) {
+        Write-Host "[start.ps1] ERROR: missing vendored client at third_party\airsim"
+        Write-Host "[start.ps1] Copy the updated third_party folder from the project package."
+        return $false
     }
 
-    Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
+    Write-Host "[start.ps1] Installing AirSim runtime deps (numpy/msgpack/tornado)..."
     [void](Invoke-VenvPip "install --upgrade pip")
     [void](Invoke-VenvPip ("install -r `"{0}`"" -f (Join-Path $RootDir "requirements-airsim.txt")))
 
-    # Critical: no build isolation so setup.py can see venv numpy
-    [void](Invoke-VenvPip "install --no-build-isolation --no-deps airsim")
     if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package OK."
+        Write-Host "[start.ps1] AirSim Python client OK (vendored third_party\airsim)."
         return $true
     }
 
-    Write-Host "[start.ps1] PyPI airsim failed - installing from GitHub zip..."
-    $ok = Install-AirSimFromZip
-    if ($ok) {
-        Write-Host "[start.ps1] AirSim Python package OK (from zip)."
-        return $true
-    }
-
-    Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
+    Write-Host "[start.ps1] ERROR: could not import vendored airsim client."
     Write-Host "[start.ps1] Fix manually, then re-run:"
     Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
-    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps airsim"
-    Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
+    Write-Host '[start.ps1]   $env:PYTHONPATH = "' + (Get-AirSimThirdParty) + '"'
+    Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "from simulation.airsim_bootstrap import import_airsim; import_airsim()"'
     return $false
 }
 
@@ -394,6 +347,8 @@ switch ($Mode) {
     default { $sourceArg = "video:datasets/DroneCrowd/sample.mp4" }
 }
 
+$AirsimThirdParty = Join-Path $RootDir "third_party"
+
 $aiJob = Start-Job -ScriptBlock {
     Set-Location $using:RootDir
     if ($using:Mode -eq "airsim") {
@@ -403,6 +358,7 @@ $aiJob = Start-Job -ScriptBlock {
         if (-not $env:YOLO_IMGSZ) { $env:YOLO_IMGSZ = "960" }
         if (-not $env:MIN_HITS_FOR_UNIQUE) { $env:MIN_HITS_FOR_UNIQUE = "5" }
         if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
+        $env:PYTHONPATH = $using:AirsimThirdParty
     }
     & $using:VenvPython -m pip install -r requirements.txt --quiet
     if ($using:Mode -eq "airsim") {
@@ -419,10 +375,11 @@ if ($Mode -eq "airsim") {
     $flightJob = Start-Job -ScriptBlock {
         Set-Location $using:RootDir
         if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
-        # Package is installed in the main script; verify before flying.
-        cmd.exe /c "`"$using:VenvPython`" -c `"import airsim`" >nul 2>&1"
+        $env:PYTHONPATH = $using:AirsimThirdParty
+        # Vendored client + runtime deps are prepared in the main script.
+        cmd.exe /c "set PYTHONPATH=$using:AirsimThirdParty&& `"$using:VenvPython`" -c `"from simulation.airsim_bootstrap import import_airsim; import_airsim()`" >nul 2>&1"
         if ($LASTEXITCODE -ne 0) {
-            "ERROR: airsim not importable - pip install -r requirements-airsim.txt" |
+            "ERROR: vendored airsim not importable - pip install -r requirements-airsim.txt" |
                 Out-File "$using:LogDir\airsim_flight.log"
             exit 1
         }

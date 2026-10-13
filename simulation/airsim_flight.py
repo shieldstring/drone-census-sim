@@ -24,7 +24,9 @@ import os
 import time
 from pathlib import Path
 
-import airsim
+from simulation.airsim_bootstrap import import_airsim
+
+airsim = import_airsim()
 
 
 class DroneFlightController:

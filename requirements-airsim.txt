@@ -2,10 +2,11 @@
 #   .\scripts\start.ps1 -Airsim
 #   ./scripts/start.sh --airsim
 #
-# Install order matters. The PyPI "airsim" package imports numpy at build
-# time, so start.ps1 installs these first, then:
-#   pip install --no-build-isolation --no-deps airsim
+# Do NOT pip-install the PyPI "airsim" package - its setup.py imports the
+# package at build time and breaks on modern Python. The client is vendored
+# at third_party/airsim and wired onto PYTHONPATH by start.ps1 / the modules.
 numpy>=1.21.0
 opencv-contrib-python>=4.5.0
 msgpack-rpc-python==0.4.1
 tornado==4.5.3
+backports.ssl-match-hostname

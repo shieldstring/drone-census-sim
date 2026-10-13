@@ -46,14 +46,16 @@ class AirSimStream:
     """
 
     def __init__(self, image_type=0, camera_name="0"):
-        import airsim
+        from simulation.airsim_bootstrap import import_airsim
 
+        airsim = import_airsim()
         host = os.environ.get("AIRSIM_HOST", "127.0.0.1")
         print(f"[camera_stream] AirSim camera connect -> {host}")
         self.client = airsim.MultirotorClient(ip=host)
         self.client.confirmConnection()
         self.image_type = image_type
         self.camera_name = camera_name
+        self._airsim = airsim
         self._empty_streak = 0
         self._ok_frames = 0
         # Warm up: first few simGetImage calls can return empty while UE boots.
@@ -65,12 +67,12 @@ class AirSimStream:
                 break
             time.sleep(0.3)
         else:
-            print("[camera_stream] WARNING: no AirSim frames yet — is the sim running?")
+            print("[camera_stream] WARNING: no AirSim frames yet - is the sim running?")
 
     def read(self):
-        import airsim
         import numpy as np
 
+        airsim = self._airsim
         try:
             responses = self.client.simGetImages(
                 [
