@@ -1,4 +1,10 @@
 # Optional - only needed for AirSim live simulation mode:
 #   .\scripts\start.ps1 -Airsim
 #   ./scripts/start.sh --airsim
+#
+# If `pip install airsim` fails (common with msgpack-rpc-python on newer
+# Python), start.ps1 falls back to the official GitHub PythonClient.
 airsim>=1.8.1
+numpy
+opencv-contrib-python
+msgpack-rpc-python

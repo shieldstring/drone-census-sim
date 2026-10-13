@@ -103,6 +103,52 @@ if (-not (Test-Path $VenvPython)) {
 }
 Write-Host "[start.ps1] Using Python: $VenvPython"
 
+function Test-AirSimImport {
+    & $VenvPython -c "import airsim; print(airsim.__file__)" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Ensure-AirSimPython {
+    <#
+      Install the AirSim Python client into .venv before background jobs start.
+      Quiet background pip was failing silently -> ModuleNotFoundError: airsim.
+    #>
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package already installed."
+        return $true
+    }
+
+    Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
+    & $VenvPython -m pip install --upgrade pip
+    & $VenvPython -m pip install -r (Join-Path $RootDir "requirements-airsim.txt")
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package OK."
+        return $true
+    }
+
+    Write-Host "[start.ps1] PyPI airsim install incomplete — trying GitHub PythonClient..."
+    & $VenvPython -m pip install "git+https://github.com/microsoft/AirSim.git@v1.8.1#subdirectory=PythonClient"
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package OK (from GitHub)."
+        return $true
+    }
+
+    # Last resort: msgpack-rpc often breaks; try a known-good combo
+    Write-Host "[start.ps1] Retrying with pinned msgpack-rpc / tornado deps..."
+    & $VenvPython -m pip install "msgpack-rpc-python==0.4.1" "tornado==4.5.3" "numpy" "opencv-contrib-python"
+    & $VenvPython -m pip install --no-deps airsim
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package OK (pinned deps)."
+        return $true
+    }
+
+    Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
+    Write-Host "[start.ps1] Fix manually, then re-run:"
+    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
+    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -c `"import airsim`""
+    return $false
+}
+
 foreach ($tool in @("node", "npm")) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         Write-Host "[start.ps1] ERROR: '$tool' was not found. Install Node.js LTS from https://nodejs.org"
@@ -226,6 +272,13 @@ if (-not (Wait-Port -Port 8080 -TimeoutSeconds 90)) {
 
 # ---- Step 3: AirSim (only if -Airsim was passed) ----
 if ($Mode -eq "airsim") {
+    if (-not (Ensure-AirSimPython)) {
+        Write-Host "[start.ps1] AirSim Python client missing — falling back to video mode."
+        $Mode = "video"
+    }
+}
+
+if ($Mode -eq "airsim") {
     $pathIsUsable = $AirsimPath -and (Test-Path $AirsimPath)
 
     if (-not $pathIsUsable) {
@@ -315,10 +368,16 @@ if ($Mode -eq "airsim") {
     $flightJob = Start-Job -ScriptBlock {
         Set-Location $using:RootDir
         if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
-        & $using:VenvPython -m pip install -r requirements-airsim.txt --quiet
+        # Package is installed in the main script; verify before flying.
+        & $using:VenvPython -c "import airsim" 2>&1 | Out-File "$using:LogDir\airsim_flight.log"
+        if ($LASTEXITCODE -ne 0) {
+            "ERROR: airsim not importable — run Ensure-AirSimPython / pip install -r requirements-airsim.txt" |
+                Out-File "$using:LogDir\airsim_flight.log" -Append
+            exit 1
+        }
         Start-Sleep -Seconds 5
         & $using:VenvPython -m simulation.airsim_flight 2>&1 |
-            Out-File "$using:LogDir\airsim_flight.log"
+            Out-File "$using:LogDir\airsim_flight.log" -Append
     }
     $Jobs += $flightJob
 }
