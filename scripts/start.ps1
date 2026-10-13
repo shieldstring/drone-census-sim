@@ -104,47 +104,56 @@ if (-not (Test-Path $VenvPython)) {
 Write-Host "[start.ps1] Using Python: $VenvPython"
 
 function Test-AirSimImport {
-    & $VenvPython -c "import airsim; print(airsim.__file__)" 2>$null
+    # Windows PowerShell 5.1 + ErrorActionPreference Stop treats native-command
+    # stderr (a failed "import airsim") as a terminating error. Probe via cmd
+    # so a missing package does not abort the launcher.
+    cmd.exe /c "`"$VenvPython`" -c `"import airsim`" >nul 2>&1"
     return ($LASTEXITCODE -eq 0)
 }
 
 function Ensure-AirSimPython {
     # Install the AirSim Python client into .venv before background jobs start.
     # Quiet background pip was failing silently (ModuleNotFoundError: airsim).
-    if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package already installed."
-        return $true
-    }
+    $prevEA = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if (Test-AirSimImport) {
+            Write-Host "[start.ps1] AirSim Python package already installed."
+            return $true
+        }
 
-    Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
-    & $VenvPython -m pip install --upgrade pip
-    & $VenvPython -m pip install -r (Join-Path $RootDir "requirements-airsim.txt")
-    if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package OK."
-        return $true
-    }
+        Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
+        & $VenvPython -m pip install --upgrade pip
+        & $VenvPython -m pip install -r (Join-Path $RootDir "requirements-airsim.txt")
+        if (Test-AirSimImport) {
+            Write-Host "[start.ps1] AirSim Python package OK."
+            return $true
+        }
 
-    Write-Host "[start.ps1] PyPI airsim install incomplete - trying GitHub PythonClient..."
-    & $VenvPython -m pip install "git+https://github.com/microsoft/AirSim.git@v1.8.1#subdirectory=PythonClient"
-    if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package OK (from GitHub)."
-        return $true
-    }
+        Write-Host "[start.ps1] PyPI airsim install incomplete - trying GitHub PythonClient..."
+        & $VenvPython -m pip install "git+https://github.com/microsoft/AirSim.git@v1.8.1#subdirectory=PythonClient"
+        if (Test-AirSimImport) {
+            Write-Host "[start.ps1] AirSim Python package OK (from GitHub)."
+            return $true
+        }
 
-    # Last resort: msgpack-rpc often breaks; try a known-good combo
-    Write-Host "[start.ps1] Retrying with pinned msgpack-rpc / tornado deps..."
-    & $VenvPython -m pip install "msgpack-rpc-python==0.4.1" "tornado==4.5.3" "numpy" "opencv-contrib-python"
-    & $VenvPython -m pip install --no-deps airsim
-    if (Test-AirSimImport) {
-        Write-Host "[start.ps1] AirSim Python package OK (pinned deps)."
-        return $true
-    }
+        # Last resort: msgpack-rpc often breaks; try a known-good combo
+        Write-Host "[start.ps1] Retrying with pinned msgpack-rpc / tornado deps..."
+        & $VenvPython -m pip install "msgpack-rpc-python==0.4.1" "tornado==4.5.3" "numpy" "opencv-contrib-python"
+        & $VenvPython -m pip install --no-deps airsim
+        if (Test-AirSimImport) {
+            Write-Host "[start.ps1] AirSim Python package OK (pinned deps)."
+            return $true
+        }
 
-    Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
-    Write-Host "[start.ps1] Fix manually, then re-run:"
-    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
-    Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
-    return $false
+        Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
+        Write-Host "[start.ps1] Fix manually, then re-run:"
+        Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
+        Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
+        return $false
+    } finally {
+        $ErrorActionPreference = $prevEA
+    }
 }
 
 foreach ($tool in @("node", "npm")) {
@@ -367,10 +376,10 @@ if ($Mode -eq "airsim") {
         Set-Location $using:RootDir
         if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
         # Package is installed in the main script; verify before flying.
-        & $using:VenvPython -c "import airsim" 2>&1 | Out-File "$using:LogDir\airsim_flight.log"
+        cmd.exe /c "`"$using:VenvPython`" -c `"import airsim`" >nul 2>&1"
         if ($LASTEXITCODE -ne 0) {
-            "ERROR: airsim not importable - run Ensure-AirSimPython / pip install -r requirements-airsim.txt" |
-                Out-File "$using:LogDir\airsim_flight.log" -Append
+            "ERROR: airsim not importable - pip install -r requirements-airsim.txt" |
+                Out-File "$using:LogDir\airsim_flight.log"
             exit 1
         }
         Start-Sleep -Seconds 5
