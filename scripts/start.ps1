@@ -109,10 +109,8 @@ function Test-AirSimImport {
 }
 
 function Ensure-AirSimPython {
-    <#
-      Install the AirSim Python client into .venv before background jobs start.
-      Quiet background pip was failing silently -> ModuleNotFoundError: airsim.
-    #>
+    # Install the AirSim Python client into .venv before background jobs start.
+    # Quiet background pip was failing silently (ModuleNotFoundError: airsim).
     if (Test-AirSimImport) {
         Write-Host "[start.ps1] AirSim Python package already installed."
         return $true
@@ -126,7 +124,7 @@ function Ensure-AirSimPython {
         return $true
     }
 
-    Write-Host "[start.ps1] PyPI airsim install incomplete — trying GitHub PythonClient..."
+    Write-Host "[start.ps1] PyPI airsim install incomplete - trying GitHub PythonClient..."
     & $VenvPython -m pip install "git+https://github.com/microsoft/AirSim.git@v1.8.1#subdirectory=PythonClient"
     if (Test-AirSimImport) {
         Write-Host "[start.ps1] AirSim Python package OK (from GitHub)."
@@ -145,7 +143,7 @@ function Ensure-AirSimPython {
     Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
     Write-Host "[start.ps1] Fix manually, then re-run:"
     Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
-    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -c `"import airsim`""
+    Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
     return $false
 }
 
@@ -273,7 +271,7 @@ if (-not (Wait-Port -Port 8080 -TimeoutSeconds 90)) {
 # ---- Step 3: AirSim (only if -Airsim was passed) ----
 if ($Mode -eq "airsim") {
     if (-not (Ensure-AirSimPython)) {
-        Write-Host "[start.ps1] AirSim Python client missing — falling back to video mode."
+        Write-Host "[start.ps1] AirSim Python client missing - falling back to video mode."
         $Mode = "video"
     }
 }
@@ -362,7 +360,7 @@ $aiJob = Start-Job -ScriptBlock {
 }
 $Jobs += $aiJob
 
-# Autonomous survey flight (AirSim mode only) — takeoff + waypoints while camera streams
+# Autonomous survey flight (AirSim mode only) - takeoff + waypoints while camera streams
 if ($Mode -eq "airsim") {
     Write-Host "[start.ps1] Starting autonomous AirSim survey flight..."
     $flightJob = Start-Job -ScriptBlock {
@@ -371,7 +369,7 @@ if ($Mode -eq "airsim") {
         # Package is installed in the main script; verify before flying.
         & $using:VenvPython -c "import airsim" 2>&1 | Out-File "$using:LogDir\airsim_flight.log"
         if ($LASTEXITCODE -ne 0) {
-            "ERROR: airsim not importable — run Ensure-AirSimPython / pip install -r requirements-airsim.txt" |
+            "ERROR: airsim not importable - run Ensure-AirSimPython / pip install -r requirements-airsim.txt" |
                 Out-File "$using:LogDir\airsim_flight.log" -Append
             exit 1
         }
