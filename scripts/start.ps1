@@ -107,53 +107,95 @@ function Test-AirSimImport {
     # Windows PowerShell 5.1 + ErrorActionPreference Stop treats native-command
     # stderr (a failed "import airsim") as a terminating error. Probe via cmd
     # so a missing package does not abort the launcher.
-    cmd.exe /c "`"$VenvPython`" -c `"import airsim`" >nul 2>&1"
+    cmd.exe /c "`"$VenvPython`" -c `"import airsim`" >nul 2>&1" | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
-function Ensure-AirSimPython {
-    # Install the AirSim Python client into .venv before background jobs start.
-    # Quiet background pip was failing silently (ModuleNotFoundError: airsim).
+function Invoke-VenvPip {
+    # Run pip via cmd so stdout/stderr never pollute PowerShell function returns.
+    param([Parameter(Mandatory = $true)][string]$PipArgs)
+    Write-Host "[start.ps1] pip $PipArgs"
+    cmd.exe /c "`"$VenvPython`" -m pip $PipArgs"
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Install-AirSimFromZip {
+    # No git required: download AirSim release zip and copy PythonClient/airsim
+    # into the venv site-packages.
     $prevEA = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        if (Test-AirSimImport) {
-            Write-Host "[start.ps1] AirSim Python package already installed."
-            return $true
+        $zipUrl = "https://github.com/microsoft/AirSim/archive/refs/tags/v1.8.1.zip"
+        $tmpRoot = Join-Path $env:TEMP "drone-census-airsim-py"
+        $zipPath = Join-Path $tmpRoot "AirSim-1.8.1.zip"
+        $extractDir = Join-Path $tmpRoot "extract"
+        New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
+        if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+
+        Write-Host "[start.ps1] Downloading AirSim PythonClient zip (no git needed)..."
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+        $src = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "airsim" |
+            Where-Object { $_.FullName -match "PythonClient[\\/]airsim$" } |
+            Select-Object -First 1
+        if (-not $src) {
+            Write-Host "[start.ps1] Could not find PythonClient\airsim inside the zip."
+            return $false
         }
 
-        Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
-        & $VenvPython -m pip install --upgrade pip
-        & $VenvPython -m pip install -r (Join-Path $RootDir "requirements-airsim.txt")
-        if (Test-AirSimImport) {
-            Write-Host "[start.ps1] AirSim Python package OK."
-            return $true
+        $site = (& $VenvPython -c "import site; print(site.getsitepackages()[0])").Trim()
+        if (-not $site) {
+            Write-Host "[start.ps1] Could not resolve venv site-packages."
+            return $false
         }
-
-        Write-Host "[start.ps1] PyPI airsim install incomplete - trying GitHub PythonClient..."
-        & $VenvPython -m pip install "git+https://github.com/microsoft/AirSim.git@v1.8.1#subdirectory=PythonClient"
-        if (Test-AirSimImport) {
-            Write-Host "[start.ps1] AirSim Python package OK (from GitHub)."
-            return $true
-        }
-
-        # Last resort: msgpack-rpc often breaks; try a known-good combo
-        Write-Host "[start.ps1] Retrying with pinned msgpack-rpc / tornado deps..."
-        & $VenvPython -m pip install "msgpack-rpc-python==0.4.1" "tornado==4.5.3" "numpy" "opencv-contrib-python"
-        & $VenvPython -m pip install --no-deps airsim
-        if (Test-AirSimImport) {
-            Write-Host "[start.ps1] AirSim Python package OK (pinned deps)."
-            return $true
-        }
-
-        Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
-        Write-Host "[start.ps1] Fix manually, then re-run:"
-        Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
-        Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
+        $dest = Join-Path $site "airsim"
+        if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+        Copy-Item -Recurse -Force $src.FullName $dest
+        Write-Host "[start.ps1] Copied airsim client -> $dest"
+        return (Test-AirSimImport)
+    } catch {
+        Write-Host "[start.ps1] Zip install failed: $($_.Exception.Message)"
         return $false
     } finally {
         $ErrorActionPreference = $prevEA
     }
+}
+
+function Ensure-AirSimPython {
+    # Install AirSim Python client into .venv. Returns a single bool.
+    # PyPI airsim imports numpy during build - install deps first, then
+    # --no-build-isolation --no-deps. Fall back to zip copy if needed.
+    $ok = $false
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package already installed."
+        return $true
+    }
+
+    Write-Host "[start.ps1] Installing AirSim Python client into .venv ..."
+    [void](Invoke-VenvPip "install --upgrade pip")
+    [void](Invoke-VenvPip ("install -r `"{0}`"" -f (Join-Path $RootDir "requirements-airsim.txt")))
+
+    # Critical: no build isolation so setup.py can see venv numpy
+    [void](Invoke-VenvPip "install --no-build-isolation --no-deps airsim")
+    if (Test-AirSimImport) {
+        Write-Host "[start.ps1] AirSim Python package OK."
+        return $true
+    }
+
+    Write-Host "[start.ps1] PyPI airsim failed - installing from GitHub zip..."
+    $ok = Install-AirSimFromZip
+    if ($ok) {
+        Write-Host "[start.ps1] AirSim Python package OK (from zip)."
+        return $true
+    }
+
+    Write-Host "[start.ps1] ERROR: could not import airsim in $VenvPython"
+    Write-Host "[start.ps1] Fix manually, then re-run:"
+    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install -r requirements-airsim.txt"
+    Write-Host "[start.ps1]   .\.venv\Scripts\python.exe -m pip install --no-build-isolation --no-deps airsim"
+    Write-Host '[start.ps1]   .\.venv\Scripts\python.exe -c "import airsim"'
+    return $false
 }
 
 foreach ($tool in @("node", "npm")) {
@@ -279,7 +321,9 @@ if (-not (Wait-Port -Port 8080 -TimeoutSeconds 90)) {
 
 # ---- Step 3: AirSim (only if -Airsim was passed) ----
 if ($Mode -eq "airsim") {
-    if (-not (Ensure-AirSimPython)) {
+    # Select-Object -Last 1 guards against any accidental pipeline noise
+    $airsimPyOk = @(Ensure-AirSimPython) | Select-Object -Last 1
+    if (-not $airsimPyOk) {
         Write-Host "[start.ps1] AirSim Python client missing - falling back to video mode."
         $Mode = "video"
     }
