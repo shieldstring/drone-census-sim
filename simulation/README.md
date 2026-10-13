@@ -74,8 +74,18 @@ python -m simulation.airsim_flight
 python -m ai_pipeline.counter --source airsim
 ```
 
-Optional: copy `simulation\settings.json` to `%USERPROFILE%\Documents\AirSim\settings.json`
-for a downward-facing camera (the launcher does this automatically if missing).
+The launcher always copies `simulation\settings.json` to
+`%USERPROFILE%\Documents\AirSim\settings.json` (oblique camera ~55°, 1280×720).
+
+## Detection tips (if counts stay at 0)
+
+Default survey flies at **18–25 m** with an **oblique** camera so YOLO can see people.
+Straight-down 50 m+ views look like dots and rarely detect.
+
+1. Confirm `logs\ai_pipeline.log` shows `persons(yolo class0)` — if YOLO failed to load, run:
+   `.\.venv\Scripts\pip install ultralytics`
+2. Watch the dashboard video: you should see streets/pedestrians, not empty sky/roof.
+3. Re-run: `.\scripts\start.ps1 -Airsim` (refreshes AirSim settings + loops the survey).
 
 ## Pedestrian density
 
@@ -83,7 +93,7 @@ CityEnviron ships with pedestrians. For denser custom crowds you need Unreal Edi
 + the AirSim plugin and your own NPC-populated level, then set `AIRSIM_BINARY_PATH`
 to that packaged `.exe`.
 
-Waypoint layout and altitudes: `flight_config.json`.
+Waypoint layout and altitudes: `flight_config.json` (`loop: true` keeps patrolling).
 
 ## Remote AirSim (e.g. Mac → Windows)
 

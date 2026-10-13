@@ -43,16 +43,17 @@ class DroneFlightController:
         print("[airsim_flight] Connected — API control enabled")
 
     def _configure_camera(self):
-        """Point camera 0 downward for aerial census framing."""
+        """Point camera 0 for aerial census (oblique by default — better for YOLO)."""
         cam = self.config.get("camera", {})
-        pitch_deg = float(cam.get("pitch_deg", -90))
+        pitch_deg = float(cam.get("pitch_deg", -55))
         # AirSim uses NED; pitch negative looks down
         orientation = airsim.to_quaternion(pitch_deg * 3.14159 / 180.0, 0, 0)
         try:
             self.client.simSetCameraPose(
                 "0",
-                airsim.Pose(airsim.Vector3r(0.0, 0.0, 0.0), orientation),
+                airsim.Pose(airsim.Vector3r(0.0, 0.0, -0.3), orientation),
             )
+            print(f"[airsim_flight] Camera pitch set to {pitch_deg} deg")
         except Exception as err:
             print(f"[airsim_flight] Camera pose note: {err}")
 
@@ -69,13 +70,18 @@ class DroneFlightController:
         speed = float(self.config.get("speed_mps", 5))
         self.client.moveToZAsync(-float(altitude_m), 3).join()
         for i, (x, y) in enumerate(zone["waypoints"]):
-            print(f"[airsim_flight] {name} waypoint {i + 1}/{len(zone['waypoints'])} -> ({x}, {y}) @ {altitude_m}m")
-            self.client.moveToPositionAsync(float(x), float(y), -float(altitude_m), speed).join()
+            print(
+                f"[airsim_flight] {name} waypoint {i + 1}/{len(zone['waypoints'])} "
+                f"-> ({x}, {y}) @ {altitude_m}m"
+            )
+            self.client.moveToPositionAsync(
+                float(x), float(y), -float(altitude_m), speed
+            ).join()
             # brief hover so the AI pipeline can sample the zone
             time.sleep(float(self.config.get("hover_s", 1.0)))
 
-    def run_survey(self):
-        altitudes = self.config.get("altitudes_m") or [50]
+    def run_survey_once(self):
+        altitudes = self.config.get("altitudes_m") or [20]
         zones = self.config.get("zones") or []
         self.takeoff(altitude_m=altitudes[0])
 
@@ -84,11 +90,32 @@ class DroneFlightController:
                 print(f"[airsim_flight] Surveying {zone['name']} at {altitude_m} m")
                 self.fly_grid(zone, altitude_m)
 
-        print("[airsim_flight] Survey complete — landing")
-        self.client.landAsync().join()
-        self.client.armDisarm(False)
-        self.client.enableApiControl(False)
-        print("[airsim_flight] Disarmed / API control released")
+    def run_survey(self):
+        """
+        Fly the census grid. If config.loop is true (default for AirSim demos),
+        keep patrolling so the counter keeps seeing pedestrians — do not land.
+        """
+        loop = bool(self.config.get("loop", True))
+        lap = 0
+        try:
+            while True:
+                lap += 1
+                print(f"[airsim_flight] === Survey lap {lap} ===")
+                self.run_survey_once()
+                if not loop:
+                    break
+                print("[airsim_flight] Lap complete — looping (set loop=false to land)")
+        except KeyboardInterrupt:
+            print("[airsim_flight] Interrupted — landing")
+        finally:
+            try:
+                print("[airsim_flight] Landing...")
+                self.client.landAsync().join()
+                self.client.armDisarm(False)
+                self.client.enableApiControl(False)
+            except Exception as err:
+                print(f"[airsim_flight] Shutdown note: {err}")
+            print("[airsim_flight] Disarmed / API control released")
 
 
 def main():

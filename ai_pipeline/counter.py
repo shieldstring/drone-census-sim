@@ -29,14 +29,22 @@ if config.USE_DENSITY_MAP:
 class ZoneCounter:
     def __init__(self, source=None):
         self.source = source or config.VIDEO_SOURCE
+        if self.source == "airsim" or (self.source and self.source.startswith("airsim")):
+            config.apply_airsim_defaults()
         self.stream = get_stream(self.source)
         self.tracker = PersonTracker()
+        if getattr(self.tracker, "model", None) is None and config.DETECT_MODE in ("person", "both"):
+            print(
+                "[counter] WARNING: YOLO person model not loaded — counts will stay at 0. "
+                "Install with: pip install ultralytics  (and ensure yolov8n.pt downloads)"
+            )
         self.density = DensityEstimator(config.DENSITY_MODEL) if config.USE_DENSITY_MAP else None
         self.zone_index = 0
         self.frame_count = 0
         self.last_density = None
         # Per-zone confirmed unique IDs (fixes webcam showing ~30 for one person)
         self.zone_ids = {z: set() for z in config.GRID_ZONES}
+        self._zero_detect_streak = 0
 
     @staticmethod
     def encode_frame(frame):
@@ -75,7 +83,7 @@ class ZoneCounter:
         try:
             while True:
                 ok, frame = self.stream.read()
-                if not ok:
+                if not ok or frame is None:
                     await asyncio.sleep(0.05)
                     continue
 
@@ -99,6 +107,21 @@ class ZoneCounter:
 
                 faces_n = int(getattr(result, "faces_in_frame", 0) or 0)
                 persons_n = int(getattr(result, "persons_in_frame", 0) or 0)
+
+                if faces_n + persons_n == 0:
+                    self._zero_detect_streak += 1
+                    if self._zero_detect_streak in (60, 300, 900):
+                        print(
+                            f"[counter] No people detected for {self._zero_detect_streak} frames. "
+                            "Check: YOLO installed? Drone low enough (~18m)? Pedestrians in view?"
+                        )
+                else:
+                    if self._zero_detect_streak >= 60:
+                        print(
+                            f"[counter] Detection resumed: "
+                            f"{persons_n} person(s), {faces_n} face(s) in frame"
+                        )
+                    self._zero_detect_streak = 0
                 extras = getattr(result, "extras", None) or {}
                 active = extras.get("active_ids") or []
                 if result.boxes is not None and getattr(result.boxes, "id", None) is not None and not active:

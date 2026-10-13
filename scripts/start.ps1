@@ -254,13 +254,13 @@ if ($Mode -eq "airsim") {
         if ($AirsimArgs -and $AirsimArgs.Trim() -ne "") {
             $argList = $AirsimArgs -split "\s+"
         }
-        # Install project AirSim settings (downward camera) for this user if missing
+        # Always refresh AirSim camera settings (oblique ~55deg, low enough for YOLO)
         $airsimSettingsDir = Join-Path $env:USERPROFILE "Documents\AirSim"
         $airsimSettings = Join-Path $airsimSettingsDir "settings.json"
         $projectSettings = Join-Path $RootDir "simulation\settings.json"
-        if ((Test-Path $projectSettings) -and -not (Test-Path $airsimSettings)) {
+        if (Test-Path $projectSettings) {
             New-Item -ItemType Directory -Force -Path $airsimSettingsDir | Out-Null
-            Copy-Item $projectSettings $airsimSettings
+            Copy-Item $projectSettings $airsimSettings -Force
             Write-Host "[start.ps1] Installed simulation\settings.json -> Documents\AirSim\settings.json"
         }
 
@@ -292,6 +292,14 @@ switch ($Mode) {
 
 $aiJob = Start-Job -ScriptBlock {
     Set-Location $using:RootDir
+    if ($using:Mode -eq "airsim") {
+        # Aerial defaults (faces do not work from drone altitude)
+        if (-not $env:DETECT_MODE) { $env:DETECT_MODE = "person" }
+        if (-not $env:CONFIDENCE_THRESHOLD) { $env:CONFIDENCE_THRESHOLD = "0.25" }
+        if (-not $env:YOLO_IMGSZ) { $env:YOLO_IMGSZ = "960" }
+        if (-not $env:MIN_HITS_FOR_UNIQUE) { $env:MIN_HITS_FOR_UNIQUE = "5" }
+        if ($using:AirsimHost) { $env:AIRSIM_HOST = $using:AirsimHost }
+    }
     & $using:VenvPython -m pip install -r requirements.txt --quiet
     if ($using:Mode -eq "airsim") {
         & $using:VenvPython -m pip install -r requirements-airsim.txt --quiet

@@ -217,11 +217,16 @@ class PersonTracker:
 
         if want_persons:
             self.model = _try_yolo(model_path or config.YOLO_MODEL)
-            if self.model is None and raw == "person":
-                print("[tracker] YOLO missing; falling back to faces only")
-                self.detect_mode = "face"
-                if self._face_detect is None and self._face_yolo is None:
-                    self._face_detect, self._face_backend_name = _build_face_backend()
+            if self.model is None:
+                print(
+                    "[tracker] ERROR: YOLO person model failed to load. "
+                    "Aerial/AirSim counting needs ultralytics + yolov8n.pt"
+                )
+                if raw == "person":
+                    print("[tracker] YOLO missing; falling back to faces only (poor for aerial)")
+                    self.detect_mode = "face"
+                    if self._face_detect is None and self._face_yolo is None:
+                        self._face_detect, self._face_backend_name = _build_face_backend()
 
         parts = []
         if self.detect_mode in ("face", "both"):
@@ -352,12 +357,19 @@ class PersonTracker:
             frame,
             classes=[self.PERSON_CLASS_ID],
             conf=config.CONFIDENCE_THRESHOLD,
+            imgsz=config.YOLO_IMGSZ,
             verbose=False,
         )
         r0 = results[0]
         if r0.boxes is None or len(r0.boxes) == 0:
             return np.zeros((0, 4), np.float32), np.zeros((0,), np.float32)
-        return r0.boxes.xyxy.cpu().numpy(), r0.boxes.conf.cpu().numpy()
+        xyxy = r0.boxes.xyxy.cpu().numpy()
+        confs = r0.boxes.conf.cpu().numpy()
+        min_h = max(1, int(getattr(config, "MIN_PERSON_HEIGHT", 12)))
+        keep = [i for i, (x1, y1, x2, y2) in enumerate(xyxy) if (y2 - y1) >= min_h]
+        if not keep:
+            return np.zeros((0, 4), np.float32), np.zeros((0,), np.float32)
+        return xyxy[keep], confs[keep]
 
     def _register_hit(self, tid: int):
         """Count toward unique only after the track is stable for MIN_HITS frames."""
